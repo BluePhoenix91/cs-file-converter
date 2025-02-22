@@ -1,19 +1,33 @@
 ﻿using System.Xml.Linq;
+using System.Text.RegularExpressions;
 
 class Program
 {
     private static readonly List<string> ExcludedFolders = new List<string> { "obj", "bin", ".vs", "packages" };
+    private static readonly List<string> ExcludedPatterns = new List<string>();
     private enum OutputStructure { SuperFlat, Flat, Structured }
+
+    class ProcessingOptions
+    {
+        public bool IncludeMigrations { get; set; } = true;
+        public bool IncludeInterfaces { get; set; } = true;
+        public bool IncludeTestFiles { get; set; } = true;
+        public bool IncludeGeneratedFiles { get; set; } = true;
+        public bool RemoveXmlDocs { get; set; } = false;
+        public bool RemoveEmptyLines { get; set; } = false;
+        public string MigrationsFolder { get; set; } = "Migrations";
+    }
 
     static void Main(string[] args)
     {
         Console.WriteLine("=== Solution C# to TXT File Converter ===\n");
 
+        var options = GetProcessingOptions();
+
         // Get source directory from user
         Console.Write("Enter the solution directory path: ");
         string sourceDir = Console.ReadLine().Trim();
 
-        // Validate source directory
         while (!Directory.Exists(sourceDir) || !IsSolutionDirectory(sourceDir))
         {
             Console.WriteLine("\nError: The specified directory does not exist or is not a valid solution directory.");
@@ -22,20 +36,26 @@ class Program
             sourceDir = Console.ReadLine().Trim();
         }
 
-        // Get migration preferences
-        Console.Write("\nInclude migration files? (Y/N): ");
-        bool includeMigrations = Console.ReadLine().Trim().ToUpper() == "Y";
-
-        if (!includeMigrations)
+        // Apply exclusion patterns based on options
+        if (!options.IncludeMigrations)
         {
-            Console.Write("\nEnter the default migrations folder name (default is 'Migrations'): ");
-            string migrationsFolder = Console.ReadLine().Trim();
-            if (string.IsNullOrEmpty(migrationsFolder))
-            {
-                migrationsFolder = "Migrations";
-            }
-            ExcludedFolders.Add(migrationsFolder);
-            Console.WriteLine($"\nFiles in '{migrationsFolder}' folders will be excluded.");
+            ExcludedFolders.Add(options.MigrationsFolder);
+        }
+        if (!options.IncludeInterfaces)
+        {
+            ExcludedPatterns.Add("I*.cs");
+        }
+        if (!options.IncludeTestFiles)
+        {
+            ExcludedPatterns.Add("*Test*.cs");
+            ExcludedPatterns.Add("*Tests*.cs");
+            ExcludedFolders.Add("Tests");
+            ExcludedFolders.Add("Test");
+        }
+        if (!options.IncludeGeneratedFiles)
+        {
+            ExcludedPatterns.Add("*.g.cs");
+            ExcludedPatterns.Add("*.generated.cs");
         }
 
         // Get destination directory from user
@@ -45,19 +65,58 @@ class Program
         // Get output structure preference
         OutputStructure structureChoice = GetOutputStructureChoice();
 
+        ProcessFiles(sourceDir, destDir, structureChoice, options);
+    }
+
+    static ProcessingOptions GetProcessingOptions()
+    {
+        var options = new ProcessingOptions();
+
+        Console.WriteLine("\n=== File Processing Options ===");
+
+        Console.Write("Include migration files? (Y/N): ");
+        options.IncludeMigrations = Console.ReadLine().Trim().ToUpper() == "Y";
+
+        if (!options.IncludeMigrations)
+        {
+            Console.Write("Enter the migrations folder name (default is 'Migrations'): ");
+            string folder = Console.ReadLine().Trim();
+            if (!string.IsNullOrEmpty(folder))
+            {
+                options.MigrationsFolder = folder;
+            }
+        }
+
+        Console.Write("Include interface files (I*.cs)? (Y/N): ");
+        options.IncludeInterfaces = Console.ReadLine().Trim().ToUpper() == "Y";
+
+        Console.Write("Include test files? (Y/N): ");
+        options.IncludeTestFiles = Console.ReadLine().Trim().ToUpper() == "Y";
+
+        Console.Write("Include generated files? (Y/N): ");
+        options.IncludeGeneratedFiles = Console.ReadLine().Trim().ToUpper() == "Y";
+
+        Console.Write("Remove XML documentation? (Y/N): ");
+        options.RemoveXmlDocs = Console.ReadLine().Trim().ToUpper() == "Y";
+
+        Console.Write("Remove empty lines? (Y/N): ");
+        options.RemoveEmptyLines = Console.ReadLine().Trim().ToUpper() == "Y";
+
+        return options;
+    }
+
+    static void ProcessFiles(string sourceDir, string destDir, OutputStructure structureChoice, ProcessingOptions options)
+    {
         try
         {
-            // Create destination directory if it doesn't exist
             Directory.CreateDirectory(destDir);
 
-            // Get all project files in the solution
             var projectFiles = GetProjectFiles(sourceDir);
             var projectPaths = projectFiles.ToDictionary(
                 pf => pf,
                 pf => GetProjectName(pf)
             );
 
-            // Get all .cs files from source directory, excluding specified folders
             var csFiles = GetSolutionFiles(sourceDir);
 
             if (!csFiles.Any())
@@ -77,46 +136,30 @@ class Program
             {
                 try
                 {
-                    string destPath;
-                    switch (structureChoice)
-                    {
-                        case OutputStructure.SuperFlat:
-                            // Find which project this file belongs to
-                            var projectFile = projectPaths
-                                .Where(p => csFile.StartsWith(Path.GetDirectoryName(p.Key)))
-                                .OrderByDescending(p => p.Key.Length)
-                                .FirstOrDefault();
+                    string destPath = GetDestinationPath(csFile, destDir, sourceDir, structureChoice, projectPaths);
 
-                            string projectName = projectFile.Value ?? "Unknown";
-                            string fileName = Path.GetFileName(csFile);
-                            destPath = Path.Combine(destDir, $"{projectName}.{Path.ChangeExtension(fileName, ".txt")}");
-                            break;
-
-                        case OutputStructure.Flat:
-                            projectFile = projectPaths
-                                .Where(p => csFile.StartsWith(Path.GetDirectoryName(p.Key)))
-                                .OrderByDescending(p => p.Key.Length)
-                                .FirstOrDefault();
-
-                            projectName = projectFile.Value ?? "Unknown";
-                            fileName = Path.GetFileName(csFile);
-                            destPath = Path.Combine(destDir, projectName, Path.ChangeExtension(fileName, ".txt"));
-                            break;
-
-                        default: // Structured
-                            string relativePath = Path.GetRelativePath(sourceDir, csFile);
-                            destPath = Path.Combine(destDir, Path.ChangeExtension(relativePath, ".txt"));
-                            break;
-                    }
-
-                    // Create subdirectories in destination if needed (not needed for super flat)
                     if (structureChoice != OutputStructure.SuperFlat)
                     {
                         Directory.CreateDirectory(Path.GetDirectoryName(destPath));
                     }
 
-                    // Copy file with new extension
-                    File.Copy(csFile, destPath, true);
+                    // Process file content
+                    string content = File.ReadAllText(csFile);
+
+                    // Remove comments first
+                    content = RemoveComments(content);
+
+                    if (options.RemoveXmlDocs)
+                    {
+                        content = RemoveXmlDocumentation(content);
+                    }
+
+                    if (options.RemoveEmptyLines)
+                    {
+                        content = RemoveEmptyLines(content);
+                    }
+
+                    File.WriteAllText(destPath, content);
                     convertedCount++;
 
                     Console.WriteLine($"Successfully converted: {csFile}");
@@ -145,6 +188,125 @@ class Program
             Console.WriteLine($"\nA critical error occurred: {ex.Message}");
             WaitForKeyPress();
         }
+    }
+
+    static string GetDestinationPath(string sourceFile, string destDir, string sourceDir,
+        OutputStructure structureChoice, Dictionary<string, string> projectPaths)
+    {
+        switch (structureChoice)
+        {
+            case OutputStructure.SuperFlat:
+                var projectFile = projectPaths
+                    .Where(p => sourceFile.StartsWith(Path.GetDirectoryName(p.Key)))
+                    .OrderByDescending(p => p.Key.Length)
+                    .FirstOrDefault();
+                string projectName = projectFile.Value ?? "Unknown";
+                string fileName = Path.GetFileName(sourceFile);
+                return Path.Combine(destDir, $"{projectName}.{Path.ChangeExtension(fileName, ".txt")}");
+
+            case OutputStructure.Flat:
+                projectFile = projectPaths
+                    .Where(p => sourceFile.StartsWith(Path.GetDirectoryName(p.Key)))
+                    .OrderByDescending(p => p.Key.Length)
+                    .FirstOrDefault();
+                projectName = projectFile.Value ?? "Unknown";
+                fileName = Path.GetFileName(sourceFile);
+                return Path.Combine(destDir, projectName, Path.ChangeExtension(fileName, ".txt"));
+
+            default: // Structured
+                string relativePath = Path.GetRelativePath(sourceDir, sourceFile);
+                return Path.Combine(destDir, Path.ChangeExtension(relativePath, ".txt"));
+        }
+    }
+
+    static string RemoveXmlDocumentation(string content)
+    {
+        // Remove XML documentation comments (///...)
+        content = Regex.Replace(content, @"^\s*///.*$\n?", "", RegexOptions.Multiline);
+
+        // Remove multi-line XML documentation
+        content = Regex.Replace(content, @"/\*\*(?!\*)[\s\S]*?\*/", "");
+
+        return content;
+    }
+
+    static string RemoveEmptyLines(string content)
+    {
+        // Remove multiple consecutive empty lines, preserve single empty lines
+        content = Regex.Replace(content, @"^\s*$\n\s*$\n", "", RegexOptions.Multiline);
+
+        // Remove empty lines after opening braces
+        content = Regex.Replace(content, @"{\s*\n\s*\n", "{\n");
+
+        // Remove empty lines before closing braces
+        content = Regex.Replace(content, @"\n\s*\n\s*}", "\n}");
+
+        return content;
+    }
+
+    static string RemoveComments(string content)
+    {
+        var lines = content.Split('\n');
+        var result = new List<string>();
+        bool inMultiLineComment = false;
+        string multiLineBuffer = "";
+
+        foreach (var line in lines)
+        {
+            if (inMultiLineComment)
+            {
+                int endIndex = line.IndexOf("*/");
+                if (endIndex != -1)
+                {
+                    // End of multi-line comment found
+                    inMultiLineComment = false;
+                    string remainingLine = line.Substring(endIndex + 2);
+                    if (!string.IsNullOrWhiteSpace(remainingLine))
+                    {
+                        multiLineBuffer += remainingLine;
+                        result.Add(multiLineBuffer.Trim());
+                    }
+                    multiLineBuffer = "";
+                }
+                continue;
+            }
+
+            string currentLine = line;
+
+            // Handle multi-line comment start
+            int multiLineStart = currentLine.IndexOf("/*");
+            if (multiLineStart != -1)
+            {
+                int multiLineEnd = currentLine.IndexOf("*/", multiLineStart);
+                if (multiLineEnd != -1)
+                {
+                    // Multi-line comment starts and ends on same line
+                    currentLine = currentLine.Remove(multiLineStart, multiLineEnd - multiLineStart + 2);
+                }
+                else
+                {
+                    // Multi-line comment starts but doesn't end
+                    inMultiLineComment = true;
+                    multiLineBuffer = currentLine.Substring(0, multiLineStart).Trim();
+                    continue;
+                }
+            }
+
+            // Handle single-line comments
+            int commentIndex = currentLine.IndexOf("//");
+            if (commentIndex != -1)
+            {
+                currentLine = currentLine.Substring(0, commentIndex);
+            }
+
+            // Only add non-empty lines
+            if (!string.IsNullOrWhiteSpace(currentLine))
+            {
+                result.Add(currentLine.TrimEnd());
+            }
+        }
+
+        return string.Join("\n", result);
     }
 
     static OutputStructure GetOutputStructureChoice()
@@ -202,9 +364,17 @@ class Program
 
     static IEnumerable<string> GetSolutionFiles(string solutionDir)
     {
-        return Directory.GetFiles(solutionDir, "*.cs", SearchOption.AllDirectories)
+        var files = Directory.GetFiles(solutionDir, "*.cs", SearchOption.AllDirectories)
             .Where(file => !ExcludedFolders.Any(folder =>
                 file.Replace(Path.DirectorySeparatorChar, '/').Contains($"/{folder}/")));
+
+        // Apply additional pattern exclusions
+        foreach (var pattern in ExcludedPatterns)
+        {
+            files = files.Where(file => !Path.GetFileName(file).Contains(pattern.Replace("*", "")));
+        }
+
+        return files;
     }
 
     static void WaitForKeyPress()
