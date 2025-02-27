@@ -43,7 +43,9 @@ class Program
         }
         if (!options.IncludeInterfaces)
         {
-            ExcludedPatterns.Add("I*.cs");
+            // Use a more specific pattern for interface files
+            // Matches files starting with I followed by uppercase letter
+            ExcludedPatterns.Add("I[A-Z]*.cs");
         }
         if (!options.IncludeTestFiles)
         {
@@ -364,17 +366,46 @@ class Program
 
     static IEnumerable<string> GetSolutionFiles(string solutionDir)
     {
+        // First, get all .cs files excluding by folder
         var files = Directory.GetFiles(solutionDir, "*.cs", SearchOption.AllDirectories)
             .Where(file => !ExcludedFolders.Any(folder =>
                 file.Replace(Path.DirectorySeparatorChar, '/').Contains($"/{folder}/")));
 
-        // Apply additional pattern exclusions
+        // Then filter by pattern exclusions
+        var result = files.ToList();
+        var filesToExclude = new List<string>();
+
         foreach (var pattern in ExcludedPatterns)
         {
-            files = files.Where(file => !Path.GetFileName(file).Contains(pattern.Replace("*", "")));
+            // Convert the pattern to a regex pattern
+            string regexPattern = "^" + Regex.Escape(pattern)
+                .Replace("\\*", ".*")
+                .Replace("\\?", ".")
+                .Replace("\\[", "[")  // Allow character classes to work
+                .Replace("\\]", "]") + "$";
+
+            var matchedFiles = result
+                .Where(file => Regex.IsMatch(Path.GetFileName(file), regexPattern, RegexOptions.None))
+                .ToList();
+
+            filesToExclude.AddRange(matchedFiles);
+
+            // Log matching files for debugging
+            if (matchedFiles.Any())
+            {
+                Console.WriteLine($"Pattern '{pattern}' excluded {matchedFiles.Count} files");
+                foreach (var file in matchedFiles.Take(5))  // Show first 5 matches
+                {
+                    Console.WriteLine($"  - {Path.GetFileName(file)}");
+                }
+                if (matchedFiles.Count > 5)
+                {
+                    Console.WriteLine($"  - ... and {matchedFiles.Count - 5} more");
+                }
+            }
         }
 
-        return files;
+        return result.Except(filesToExclude);
     }
 
     static void WaitForKeyPress()
