@@ -14,7 +14,7 @@ namespace CSFileConverter.Services
         {
             // Register available processors here
             _processors.Add(new CSharpFileProcessor());
-            // Future: Add Python, JavaScript, etc. processors
+            _processors.Add(new PythonFileProcessor());
         }
 
         /// <summary>
