@@ -12,7 +12,7 @@ namespace CSFileConverter.Filters
     {
         private readonly List<string> _excludedFolders =
         [
-            "obj", "bin", ".vs", "packages"
+            "obj", "bin", ".vs", "packages", "node_modules", "dist", ".angular", ".git"
         ];
 
         private readonly List<string> _excludedPatterns = [];
@@ -67,20 +67,26 @@ namespace CSFileConverter.Filters
             if (!_options.IncludeInterfaces)
             {
                 _excludedPatterns.Add("I*.cs");
+                _excludedPatterns.Add("I*.ts"); // TypeScript interfaces
             }
 
             if (!_options.IncludeTestFiles)
             {
                 _excludedPatterns.Add("*Test*.cs");
                 _excludedPatterns.Add("*Tests*.cs");
+                _excludedPatterns.Add("*.spec.ts"); // Angular test files
+                _excludedPatterns.Add("*.test.ts"); // Other TypeScript test files
                 _excludedFolders.Add("Tests");
                 _excludedFolders.Add("Test");
+                _excludedFolders.Add("e2e");
             }
 
             if (!_options.IncludeGeneratedFiles)
             {
                 _excludedPatterns.Add("*.g.cs");
                 _excludedPatterns.Add("*.generated.cs");
+                _excludedPatterns.Add("*.generated.ts");
+                _excludedPatterns.Add("environment.*.ts"); // Angular environment files
             }
         }
     }

@@ -15,6 +15,11 @@ namespace CSFileConverter.Services
             // Register available processors here
             _processors.Add(new CSharpFileProcessor());
             _processors.Add(new PythonFileProcessor());
+
+            // New Angular/TypeScript processors
+            _processors.Add(new TypeScriptFileProcessor());
+            _processors.Add(new HtmlFileProcessor());
+            _processors.Add(new CssFileProcessor());
         }
 
         /// <summary>

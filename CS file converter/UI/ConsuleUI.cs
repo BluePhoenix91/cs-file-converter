@@ -14,7 +14,8 @@ namespace CSFileConverter.UI
         /// </summary>
         public void ShowHeader()
         {
-            Console.WriteLine("=== Solution Code to TXT File Converter ===\n");
+            Console.WriteLine("=== Code File Converter ===");
+            Console.WriteLine("Supports .NET solutions and Angular projects\n");
         }
 
         /// <summary>
@@ -39,16 +40,16 @@ namespace CSFileConverter.UI
                 }
             }
 
-            Console.Write("Include interface files (I*.cs)? (Y/N): ");
+            Console.Write("Include interface files (I*.cs, I*.ts)? (Y/N): ");
             options.IncludeInterfaces = GetYesNoResponse();
 
-            Console.Write("Include test files? (Y/N): ");
+            Console.Write("Include test files (*.test.*, *.spec.*)? (Y/N): ");
             options.IncludeTestFiles = GetYesNoResponse();
 
             Console.Write("Include generated files? (Y/N): ");
             options.IncludeGeneratedFiles = GetYesNoResponse();
 
-            Console.Write("Remove XML documentation? (Y/N): ");
+            Console.Write("Remove documentation comments? (Y/N): ");
             options.RemoveXmlDocs = GetYesNoResponse();
 
             Console.Write("Remove empty lines? (Y/N): ");
@@ -65,14 +66,16 @@ namespace CSFileConverter.UI
         /// </summary>
         public string GetSourceDirectory()
         {
-            Console.Write("Enter the solution directory path: ");
+            Console.Write("Enter the project directory path (.NET solution or Angular project): ");
             string sourceDir = Console.ReadLine()?.Trim() ?? "";
 
             while (!Directory.Exists(sourceDir) || !projectInfoService.IsSolutionDirectory(sourceDir))
             {
-                Console.WriteLine("\nError: The specified directory does not exist or is not a valid solution directory.");
-                Console.WriteLine("Please ensure the directory contains a .sln file.");
-                Console.Write("Please enter a valid solution directory path: ");
+                Console.WriteLine("\nError: The specified directory does not exist or is not a valid project directory.");
+                Console.WriteLine("Please ensure the directory contains either:");
+                Console.WriteLine("  - A .sln file (for .NET solutions)");
+                Console.WriteLine("  - An angular.json or package.json file (for Angular projects)");
+                Console.Write("\nPlease enter a valid project directory path: ");
                 sourceDir = Console.ReadLine()?.Trim() ?? "";
             }
 
